@@ -3,10 +3,101 @@ from typing import Optional
 from PIL import Image
 from playwright.async_api import async_playwright
 from ..config.settings import settings
+import re
+import requests
+from PIL import Image, ImageDraw, ImageFont
 
 
 class ScreenshotService:
     """Service for capturing video screenshots using Playwright."""
+    
+    def __init__(self):
+        pass
+    
+    def extract_youtube_video_id(self, url: str) -> Optional[str]:
+        """Extract YouTube video ID from URL"""
+        patterns = [
+            r'(?:youtube\.com/watch\?v=|youtu\.be/)([a-zA-Z0-9_-]{11})',
+            r'youtube\.com/embed/([a-zA-Z0-9_-]{11})',
+            r'youtube\.com/v/([a-zA-Z0-9_-]{11})'
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, url)
+            if match:
+                return match.group(1)
+        return None
+    
+    async def create_youtube_thumbnail_fallback(self, url: str, timestamp: float, width: int, height: int) -> Optional[bytes]:
+        """Create fallback screenshot using YouTube thumbnail with timestamp overlay"""
+        try:
+            video_id = self.extract_youtube_video_id(url)
+            if not video_id:
+                return None
+            
+            print(f"📷 Creating YouTube thumbnail fallback for {video_id} at {timestamp}s")
+            
+            # Try different YouTube thumbnail qualities
+            thumbnail_urls = [
+                f"https://i.ytimg.com/vi/{video_id}/maxresdefault.jpg",  # 1280x720
+                f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg",     # 480x360
+                f"https://i.ytimg.com/vi/{video_id}/mqdefault.jpg"      # 320x180
+            ]
+            
+            thumbnail_data = None
+            for thumbnail_url in thumbnail_urls:
+                try:
+                    response = requests.get(thumbnail_url, timeout=10)
+                    if response.status_code == 200 and len(response.content) > 1000:  # Not a placeholder
+                        thumbnail_data = response.content
+                        break
+                except:
+                    continue
+            
+            if not thumbnail_data:
+                return None
+            
+            # Load and resize thumbnail
+            image = Image.open(io.BytesIO(thumbnail_data))
+            image = image.resize((width, height), Image.Resampling.LANCZOS)
+            
+            # Add timestamp overlay
+            draw = ImageDraw.Draw(image)
+            
+            # Format timestamp
+            minutes = int(timestamp // 60)
+            seconds = int(timestamp % 60)
+            time_text = f"{minutes}:{seconds:02d}"
+            
+            # Try to use a system font, fallback to default
+            try:
+                font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 24)
+            except:
+                font = ImageFont.load_default()
+            
+            # Add semi-transparent background for text
+            text_bbox = draw.textbbox((0, 0), time_text, font=font)
+            text_width = text_bbox[2] - text_bbox[0]
+            text_height = text_bbox[3] - text_bbox[1]
+            
+            # Position in bottom-right corner
+            x = width - text_width - 20
+            y = height - text_height - 20
+            
+            # Draw background rectangle
+            draw.rectangle([x-10, y-5, x+text_width+10, y+text_height+5], fill=(0, 0, 0, 128))
+            
+            # Draw timestamp text
+            draw.text((x, y), time_text, fill=(255, 255, 255), font=font)
+            
+            # Convert to bytes
+            output = io.BytesIO()
+            image.save(output, format='PNG')
+            return output.getvalue()
+            
+        except Exception as e:
+            print(f"❌ YouTube thumbnail fallback failed: {e}")
+            return None
     
     async def capture_video_screenshot(
         self, 
@@ -27,9 +118,11 @@ class ScreenshotService:
         Returns:
             Screenshot bytes or None if failed
         """
+        print(f"🎬 Starting fresh screenshot for {url}")
         async with async_playwright() as p:
+            # Launch fresh browser for each request to avoid state issues
             browser = await p.chromium.launch(
-                headless=True,
+                headless=True,  # Required for Docker/production environment
                 args=[
                     '--no-sandbox',
                     '--disable-setuid-sandbox',
@@ -47,8 +140,17 @@ class ScreenshotService:
                     '--disable-extensions',
                     '--disable-plugins',
                     '--mute-audio',
-                    '--disable-blink-features=AutomationControlled',  # Hide automation
-                    '--disable-ipc-flooding-protection'
+                    '--disable-blink-features=AutomationControlled',
+                    '--disable-ipc-flooding-protection',
+                    '--force-device-scale-factor=1',
+                    '--disable-features=VizDisplayCompositor,VizHitTestSurfaceLayer',
+                    '--disable-backgrounding-occluded-windows',
+                    '--disable-renderer-backgrounding',
+                    '--disable-background-timer-throttling',
+                    '--disable-field-trial-config',
+                    '--no-default-browser-check',
+                    '--no-first-run',
+                    '--disable-default-apps'
                 ]
             )
             
@@ -216,22 +318,56 @@ class ScreenshotService:
                 if not video_element:
                     return None
                 
-                # Quick video setup - no delays!
-                print("Quick video setup...")
+                # Simulate realistic user behavior to avoid bot detection
+                print("Simulating user interaction...")
+                
+                # Move mouse to center of page
+                await page.mouse.move(width // 2, height // 2)
+                await page.wait_for_timeout(100)
+                
+                # Click on the page to "focus" it
+                await page.click('body')
+                await page.wait_for_timeout(200)
+                
+                # Quick video setup with user simulation
+                print("Quick video setup with user simulation...")
+                video_setup_success = False
                 try:
                     await __import__('asyncio').wait_for(
                         page.evaluate('''
+                            // Simulate user presence
+                            document.dispatchEvent(new Event('mousemove'));
+                            document.dispatchEvent(new Event('click'));
+                            
                             const video = document.querySelector("video");
                             if (video) {
-                                video.muted = true;  // Ensure muted for autoplay
+                                video.muted = true;
+                                // Simulate user clicking play
+                                video.dispatchEvent(new Event('click'));
                                 video.play().catch(e => console.log("Play failed:", e));
                             }
                         '''),
                         timeout=5.0
                     )
-                    print("✅ Video setup completed")
+                    print("✅ Video setup with user simulation completed")
+                    video_setup_success = True
                 except Exception as e:
                     print(f"⚠️ Video setup timeout/failed: {e}")
+                    print("Attempting simpler video setup...")
+                    
+                    # Try clicking the actual play button
+                    try:
+                        play_button = await page.query_selector('.ytp-large-play-button, .ytp-play-button')
+                        if play_button:
+                            await play_button.click()
+                            await page.wait_for_timeout(500)
+                        
+                        await page.evaluate('document.querySelector("video").muted = true')
+                        await page.wait_for_timeout(1000)
+                        video_setup_success = True
+                        print("✅ Simple video setup completed")
+                    except:
+                        print("❌ Video setup completely failed - may get black screenshot")
                 
                 # Minimal wait for video to start
                 await page.wait_for_timeout(100)
@@ -256,23 +392,47 @@ class ScreenshotService:
                 ''')
                 
                 if not video_ready:
-                    print("Video not ready, quick retry...")
-                    await page.wait_for_timeout(100)  # Quick retry
+                    print("Video not ready, attempting to load content...")
                     
-                    # Quick play button retry
-                    await page.evaluate('''
-                        const playButtons = document.querySelectorAll('.ytp-large-play-button, .ytp-play-button');
-                        playButtons.forEach(btn => {
-                            if (btn && btn.click) btn.click();
-                        });
-                    ''')
-                    
-                    await page.wait_for_timeout(100)  # Quick wait
+                    # Try to force video to load by playing and waiting
+                    try:
+                        await __import__('asyncio').wait_for(
+                            page.evaluate('''
+                                const video = document.querySelector("video");
+                                if (video) {
+                                    video.muted = true;
+                                    video.currentTime = 0;
+                                    video.play();
+                                }
+                            '''),
+                            timeout=3.0
+                        )
+                        await page.wait_for_timeout(2000)  # Give more time for loading
+                        
+                        # Check if video actually has content now
+                        video_has_content = await __import__('asyncio').wait_for(
+                            page.evaluate('''
+                                const video = document.querySelector("video");
+                                if (!video) return false;
+                                return video.videoWidth > 0 && video.videoHeight > 0 && video.readyState >= 2;
+                            '''),
+                            timeout=3.0
+                        )
+                        
+                        if not video_has_content:
+                            print("❌ Video still has no content - aborting to avoid black screenshot")
+                            return None
+                        else:
+                            print("✅ Video content loaded successfully")
+                            
+                    except Exception as e:
+                        print(f"❌ Failed to load video content: {e}")
+                        return None
                 
                 # Fast timestamp seeking - go back a few frames for stability
                 if timestamp > 0:
                     # Seek back 0.5 seconds for more stable frame (avoid transitions)
-                    seek_time = max(0, timestamp + 0.5)
+                    seek_time = max(0, timestamp + 0.6)
                     print(f"Fast seek to: {seek_time} (requested: {timestamp})")
                     await page.evaluate(f'''
                         const video = document.querySelector("video");
@@ -337,6 +497,20 @@ class ScreenshotService:
                 print(f"Error in capture_video_screenshot: {e}")
                 import traceback
                 print(f"Full traceback: {traceback.format_exc()}")
+                
+                # Try YouTube thumbnail fallback for YouTube URLs
+                if 'youtube.com' in url or 'youtu.be' in url:
+                    print(f"🔄 Attempting YouTube thumbnail fallback...")
+                    try:
+                        fallback_screenshot = await self.create_youtube_thumbnail_fallback(url, timestamp, width, height)
+                        if fallback_screenshot:
+                            print(f"✅ YouTube thumbnail fallback successful!")
+                            return fallback_screenshot
+                        else:
+                            print(f"❌ YouTube thumbnail fallback also failed")
+                    except Exception as fallback_error:
+                        print(f"❌ YouTube thumbnail fallback error: {fallback_error}")
+                
                 return None
             finally:
                 try:
