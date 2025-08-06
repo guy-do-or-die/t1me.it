@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Clock, Link as LinkIcon, Copy, CheckCircle, AlertCircle, Loader2, ChevronUp, ChevronDown, Info } from 'lucide-react';
+import { Link as LinkIcon, Copy, CheckCircle, AlertCircle, Loader2, ChevronUp, ChevronDown, Info } from 'lucide-react';
 
 import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
 
@@ -169,7 +169,7 @@ function App() {
         <div className="text-center">
           <div className="flex items-center justify-center gap-3 mb-4">
             <div className="p-2 bg-primary/10 rounded-lg">
-              <Clock className="w-8 h-8 text-primary" />
+              <img src="/logo.svg" alt="t1me.it logo" className="w-16 h-16" />
             </div>
             <h1 className="text-4xl font-bold bg-gradient-to-r from-slate-900 to-slate-600 bg-clip-text text-transparent">
               t1me.it
