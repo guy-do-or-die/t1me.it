@@ -38,7 +38,17 @@ class ScreenshotService:
                     '--no-first-run',
                     '--no-zygote',
                     '--disable-gpu',
-                    '--autoplay-policy=no-user-gesture-required'
+                    '--disable-web-security',
+                    '--disable-features=VizDisplayCompositor',
+                    '--disable-background-timer-throttling',
+                    '--disable-backgrounding-occluded-windows',
+                    '--disable-renderer-backgrounding',
+                    '--autoplay-policy=no-user-gesture-required',
+                    '--enable-automation',
+                    '--disable-extensions',
+                    '--disable-plugins',
+                    '--disable-images',  # Speed up loading
+                    '--mute-audio'       # No audio needed
                 ]
             )
             
@@ -53,9 +63,34 @@ class ScreenshotService:
                 # Navigate to the video URL
                 await page.goto(url, wait_until='networkidle', timeout=settings.BROWSER_TIMEOUT)
                 
-                # Wait for video element to load
-                await page.wait_for_selector('video', timeout=10000)
-                
+                # Wait for video element to load with multiple selectors and longer timeout
+                try:
+                    # Try multiple video selectors for different platforms
+                    video_selectors = [
+                        'video',
+                        '.video-stream',  # YouTube
+                        '.vjs-tech',      # Video.js
+                        '.plyr__video',   # Plyr
+                        '[data-testid="video"]'  # Generic data-testid
+                    ]
+                    
+                    video_found = False
+                    for selector in video_selectors:
+                        try:
+                            await page.wait_for_selector(selector, timeout=5000)
+                            video_found = True
+                            break
+                        except:
+                            continue
+                    
+                    if not video_found:
+                        print(f"No video element found for URL: {url}")
+                        return None
+                        
+                except Exception as e:
+                    print(f"Error waiting for video element: {e}")
+                    return None
+                    
                 # Force maximum video quality
                 await page.evaluate('''
                     // For YouTube, set quality to highest available
