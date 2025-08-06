@@ -35,6 +35,18 @@ cache/
 *.png
 *.jpeg
 
+# User data - short links and screenshots
+links/
+screenshots/
+
+# Build artifacts
+static/
+node_modules/
+.next/
+.nuxt/
+.vuepress/dist/
+.serverless/
+
 # IDE
 .vscode/
 .idea/
