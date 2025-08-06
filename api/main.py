@@ -38,7 +38,7 @@ async def serve_logo():
 
 @app.get("/favicon.ico")
 async def serve_favicon():
-    return FileResponse(STATIC_DIR / "favicon.ico")
+    return FileResponse(STATIC_DIR / "favicon" / "favicon.ico")
 
 @app.get("/site.webmanifest")
 async def serve_manifest():
