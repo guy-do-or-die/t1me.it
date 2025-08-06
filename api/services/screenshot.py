@@ -44,51 +44,116 @@ class ScreenshotService:
                     '--disable-backgrounding-occluded-windows',
                     '--disable-renderer-backgrounding',
                     '--autoplay-policy=no-user-gesture-required',
-                    '--enable-automation',
                     '--disable-extensions',
                     '--disable-plugins',
-                    '--disable-images',  # Speed up loading
-                    '--mute-audio'       # No audio needed
+                    '--mute-audio',
+                    '--disable-blink-features=AutomationControlled',  # Hide automation
+                    '--disable-ipc-flooding-protection'
                 ]
             )
             
             try:
                 context = await browser.new_context(
                     viewport={'width': width, 'height': height},
-                    user_agent=settings.USER_AGENT
+                    user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
                 )
+                
+                # Add stealth scripts to avoid detection
+                await context.add_init_script("""
+                    // Remove webdriver property
+                    Object.defineProperty(navigator, 'webdriver', {
+                        get: () => undefined,
+                    });
+                    
+                    // Mock plugins
+                    Object.defineProperty(navigator, 'plugins', {
+                        get: () => [1, 2, 3, 4, 5],
+                    });
+                    
+                    // Mock languages
+                    Object.defineProperty(navigator, 'languages', {
+                        get: () => ['en-US', 'en'],
+                    });
+                """)
                 
                 page = await context.new_page()
                 
                 # Navigate to the video URL
-                await page.goto(url, wait_until='networkidle', timeout=settings.BROWSER_TIMEOUT)
+                print(f"Navigating to URL: {url}")
+                await page.goto(url, wait_until='domcontentloaded', timeout=30000)
                 
-                # Wait for video element to load with multiple selectors and longer timeout
-                try:
-                    # Try multiple video selectors for different platforms
-                    video_selectors = [
-                        'video',
-                        '.video-stream',  # YouTube
-                        '.vjs-tech',      # Video.js
-                        '.plyr__video',   # Plyr
-                        '[data-testid="video"]'  # Generic data-testid
-                    ]
-                    
-                    video_found = False
-                    for selector in video_selectors:
-                        try:
-                            await page.wait_for_selector(selector, timeout=5000)
+                # Wait for YouTube to load and try to find video element
+                print("Waiting for YouTube page to load...")
+                await page.wait_for_timeout(3000)  # Give YouTube time to load
+                
+                # Try to find video element with YouTube-specific approach
+                video_found = False
+                video_element = None
+                
+                # YouTube-specific selectors in order of preference
+                youtube_selectors = [
+                    'video.video-stream',  # Primary YouTube video element
+                    'video[src]',          # Any video with src
+                    'video',               # Any video element
+                    '.html5-video-player video',  # YouTube HTML5 player
+                    '#movie_player video'  # YouTube movie player
+                ]
+                
+                for selector in youtube_selectors:
+                    try:
+                        print(f"Trying selector: {selector}")
+                        await page.wait_for_selector(selector, timeout=10000)
+                        video_element = await page.query_selector(selector)
+                        if video_element:
+                            print(f"Found video element with selector: {selector}")
                             video_found = True
                             break
-                        except:
-                            continue
-                    
-                    if not video_found:
-                        print(f"No video element found for URL: {url}")
-                        return None
+                    except Exception as e:
+                        print(f"Selector {selector} failed: {e}")
+                        continue
+                
+                if not video_found:
+                    # Try to click play button and wait for video
+                    try:
+                        print("Trying to click play button...")
+                        play_selectors = [
+                            '.ytp-large-play-button',
+                            '.ytp-play-button',
+                            'button[aria-label*="Play"]',
+                            '.play-button'
+                        ]
                         
-                except Exception as e:
-                    print(f"Error waiting for video element: {e}")
+                        for play_selector in play_selectors:
+                            try:
+                                play_button = await page.query_selector(play_selector)
+                                if play_button:
+                                    await play_button.click()
+                                    await page.wait_for_timeout(2000)
+                                    
+                                    # Try to find video again after clicking play
+                                    for selector in youtube_selectors:
+                                        try:
+                                            await page.wait_for_selector(selector, timeout=5000)
+                                            video_element = await page.query_selector(selector)
+                                            if video_element:
+                                                print(f"Found video after play click: {selector}")
+                                                video_found = True
+                                                break
+                                        except:
+                                            continue
+                                    
+                                    if video_found:
+                                        break
+                            except:
+                                continue
+                    except Exception as e:
+                        print(f"Play button click failed: {e}")
+                
+                if not video_found:
+                    print(f"No video element found for URL: {url}")
+                    print("Page content:")
+                    content = await page.content()
+                    print(content[:1000])  # Print first 1000 chars for debugging
                     return None
                     
                 # Force maximum video quality
@@ -134,26 +199,78 @@ class ScreenshotService:
                 if not video_element:
                     return None
                 
-                # Seek to the specified timestamp
+                # First, try to play the video to load content
+                print("Starting video playback to load content...")
+                await page.evaluate('''
+                    const video = document.querySelector("video");
+                    if (video) {
+                        video.muted = true;  // Ensure muted for autoplay
+                        video.play().catch(e => console.log("Play failed:", e));
+                    }
+                ''')
+                
+                # Wait for video to start loading content
+                await page.wait_for_timeout(2000)
+                
+                # Check if video has actual content (not black)
+                video_ready = await page.evaluate('''
+                    (() => {
+                        const video = document.querySelector("video");
+                        if (!video) return false;
+                        
+                        // Check if video has loaded some data
+                        const hasData = video.readyState >= 2; // HAVE_CURRENT_DATA
+                        const hasSize = video.videoWidth > 0 && video.videoHeight > 0;
+                        const duration = video.duration > 0;
+                        
+                        console.log("Video readyState:", video.readyState);
+                        console.log("Video dimensions:", video.videoWidth, "x", video.videoHeight);
+                        console.log("Video duration:", video.duration);
+                        
+                        return hasData && hasSize && duration;
+                    })()
+                ''')
+                
+                if not video_ready:
+                    print("Video content not ready, waiting longer...")
+                    await page.wait_for_timeout(3000)
+                    
+                    # Try clicking play button if video still not ready
+                    await page.evaluate('''
+                        const playButtons = document.querySelectorAll('.ytp-large-play-button, .ytp-play-button');
+                        playButtons.forEach(btn => {
+                            if (btn && btn.click) btn.click();
+                        });
+                    ''')
+                    
+                    await page.wait_for_timeout(2000)
+                
+                # Now seek to the specified timestamp
                 if timestamp > 0:
-                    await page.evaluate(f'document.querySelector("video").currentTime = {timestamp}')
+                    print(f"Seeking to timestamp: {timestamp}")
+                    await page.evaluate(f'''
+                        const video = document.querySelector("video");
+                        if (video) {{
+                            video.currentTime = {timestamp};
+                            video.pause();
+                        }}
+                    ''')
                     
-                    # Immediately pause the video to prevent it from continuing to play
-                    await page.evaluate('document.querySelector("video").pause()')
+                    # Wait for seek to complete
+                    await page.wait_for_timeout(1000)
                     
-                    # Wait for the video to seek to the correct position
-                    await page.wait_for_timeout(500)
-                    
-                    # Verify we're at the correct timestamp (with some tolerance)
+                    # Verify we're at the correct timestamp
                     current_time = await page.evaluate('document.querySelector("video").currentTime')
-                    if abs(current_time - timestamp) > 2:  # 2 second tolerance
-                        # Try seeking again
+                    print(f"Current video time after seek: {current_time}")
+                    
+                    if abs(current_time - timestamp) > 2:
+                        print(f"Seek failed, trying again...")
                         await page.evaluate(f'document.querySelector("video").currentTime = {timestamp}')
-                        await page.evaluate('document.querySelector("video").pause()')
-                        await page.wait_for_timeout(500)
+                        await page.wait_for_timeout(1000)
                 else:
-                    # For timestamp 0, also pause to ensure we get the exact first frame
+                    # For timestamp 0, pause at the beginning
                     await page.evaluate('document.querySelector("video").pause()')
+                    await page.wait_for_timeout(500)
                 
                 # Enter fullscreen mode for maximum resolution capture
                 await page.evaluate('''
