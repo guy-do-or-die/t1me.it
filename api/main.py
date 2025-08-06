@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pathlib import Path
 from .config.settings import settings
@@ -29,6 +30,19 @@ app.add_middleware(
 # Mount static files - serve assets directly and static files
 app.mount("/assets", StaticFiles(directory=str(ASSETS_DIR)), name="assets")
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+# Serve React public assets at root level
+@app.get("/logo.svg")
+async def serve_logo():
+    return FileResponse(STATIC_DIR / "logo.svg")
+
+@app.get("/favicon.ico")
+async def serve_favicon():
+    return FileResponse(STATIC_DIR / "favicon.ico")
+
+@app.get("/site.webmanifest")
+async def serve_manifest():
+    return FileResponse(STATIC_DIR / "favicon" / "site.webmanifest")
 
 # Include routers - order matters! API routes first, then catch-all frontend route
 app.include_router(screenshots.router, tags=["Screenshots"])
