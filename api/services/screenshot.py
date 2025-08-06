@@ -277,37 +277,39 @@ class ScreenshotService:
                     
                 # Force maximum video quality
                 await page.evaluate('''
-                    // For YouTube, set quality to highest available
-                    if (window.location.hostname.includes('youtube.com') || window.location.hostname.includes('youtu.be')) {
+                    (() => {
+                        // For YouTube, set quality to highest available
+                        if (window.location.hostname.includes('youtube.com') || window.location.hostname.includes('youtu.be')) {
+                            const video = document.querySelector('video');
+                            if (video && video.getVideoPlaybackQuality) {
+                                // Try to access YouTube's internal player API
+                                const player = document.querySelector('#movie_player');
+                                if (player && player.setPlaybackQualityRange) {
+                                    player.setPlaybackQualityRange('hd2160', 'hd2160'); // 4K
+                                    player.setPlaybackQuality('hd2160');
+                                } else if (player && player.setPlaybackQuality) {
+                                    player.setPlaybackQuality('hd1080'); // 1080p fallback
+                                }
+                            }
+                        }
+                        
+                        // For other platforms, try to set video quality via standard methods
                         const video = document.querySelector('video');
-                        if (video && video.getVideoPlaybackQuality) {
-                            // Try to access YouTube's internal player API
-                            const player = document.querySelector('#movie_player');
-                            if (player && player.setPlaybackQualityRange) {
-                                player.setPlaybackQualityRange('hd2160', 'hd2160'); // 4K
-                                player.setPlaybackQuality('hd2160');
-                            } else if (player && player.setPlaybackQuality) {
-                                player.setPlaybackQuality('hd1080'); // 1080p fallback
+                        if (video) {
+                            // Set video to highest quality if quality selector exists
+                            const qualityButtons = document.querySelectorAll('[data-quality], .quality-selector, .vjs-quality-selector');
+                            if (qualityButtons.length > 0) {
+                                const highestQuality = Array.from(qualityButtons).find(btn => 
+                                    btn.textContent.includes('1080') || 
+                                    btn.textContent.includes('720') ||
+                                    btn.textContent.includes('HD')
+                                );
+                                if (highestQuality) {
+                                    highestQuality.click();
+                                }
                             }
                         }
-                    }
-                    
-                    // For other platforms, try to set video quality via standard methods
-                    const video = document.querySelector('video');
-                    if (video) {
-                        // Set video to highest quality if quality selector exists
-                        const qualityButtons = document.querySelectorAll('[data-quality], .quality-selector, .vjs-quality-selector');
-                        if (qualityButtons.length > 0) {
-                            const highestQuality = Array.from(qualityButtons).find(btn => 
-                                btn.textContent.includes('1080') || 
-                                btn.textContent.includes('720') ||
-                                btn.textContent.includes('HD')
-                            );
-                            if (highestQuality) {
-                                highestQuality.click();
-                            }
-                        }
-                    }
+                    })()
                 ''')
                 
                 # Wait for quality change to take effect
@@ -335,17 +337,19 @@ class ScreenshotService:
                 try:
                     await __import__('asyncio').wait_for(
                         page.evaluate('''
-                            // Simulate user presence
-                            document.dispatchEvent(new Event('mousemove'));
-                            document.dispatchEvent(new Event('click'));
-                            
-                            const video = document.querySelector("video");
-                            if (video) {
-                                video.muted = true;
-                                // Simulate user clicking play
-                                video.dispatchEvent(new Event('click'));
-                                video.play().catch(e => console.log("Play failed:", e));
-                            }
+                            (() => {
+                                // Simulate user presence
+                                document.dispatchEvent(new Event('mousemove'));
+                                document.dispatchEvent(new Event('click'));
+                                
+                                const video = document.querySelector("video");
+                                if (video) {
+                                    video.muted = true;
+                                    // Simulate user clicking play
+                                    video.dispatchEvent(new Event('click'));
+                                    video.play().catch(e => console.log("Play failed:", e));
+                                }
+                            })()
                         '''),
                         timeout=5.0
                     )
@@ -406,12 +410,14 @@ class ScreenshotService:
                     try:
                         await __import__('asyncio').wait_for(
                             page.evaluate('''
-                                const video = document.querySelector("video");
-                                if (video) {
-                                    video.muted = true;
-                                    video.currentTime = 0;
-                                    video.play();
-                                }
+                                (() => {
+                                    const video = document.querySelector("video");
+                                    if (video) {
+                                        video.muted = true;
+                                        video.currentTime = 0;
+                                        video.play();
+                                    }
+                                })()
                             '''),
                             timeout=3.0
                         )
@@ -468,21 +474,23 @@ class ScreenshotService:
                 
                 # Hide YouTube player controls for cleaner screenshot
                 await page.evaluate('''
-                    // Hide YouTube player controls
-                    const controls = document.querySelectorAll(
-                        '.ytp-chrome-bottom, .ytp-chrome-top, .ytp-gradient-bottom, .ytp-gradient-top, ' +
-                        '.ytp-progress-bar-container, .ytp-chrome-controls, .ytp-pause-overlay, ' +
-                        '.ytp-big-mode .ytp-chrome-bottom, .ytp-big-mode .ytp-chrome-top'
-                    );
-                    controls.forEach(el => {
-                        if (el) el.style.display = 'none';
-                    });
-                    
-                    // Also hide any overlay elements
-                    const overlays = document.querySelectorAll('.ytp-paid-content-overlay, .ytp-ce-element');
-                    overlays.forEach(el => {
-                        if (el) el.style.display = 'none';
-                    });
+                    (() => {
+                        // Hide YouTube player controls
+                        const controls = document.querySelectorAll(
+                            '.ytp-chrome-bottom, .ytp-chrome-top, .ytp-gradient-bottom, .ytp-gradient-top, ' +
+                            '.ytp-progress-bar-container, .ytp-chrome-controls, .ytp-pause-overlay, ' +
+                            '.ytp-big-mode .ytp-chrome-bottom, .ytp-big-mode .ytp-chrome-top'
+                        );
+                        controls.forEach(el => {
+                            if (el) el.style.display = 'none';
+                        });
+                        
+                        // Also hide any overlay elements
+                        const overlays = document.querySelectorAll('.ytp-paid-content-overlay, .ytp-ce-element');
+                        overlays.forEach(el => {
+                            if (el) el.style.display = 'none';
+                        });
+                    })()
                 ''');
                 
                 # Quick wait for controls to hide
