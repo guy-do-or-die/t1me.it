@@ -38,7 +38,7 @@ WORKDIR /app
 COPY pyproject.toml poetry.lock* ./
 
 # Install Python dependencies
-RUN poetry install --without dev
+RUN poetry install
 
 # Install Playwright browsers
 RUN playwright install chromium
