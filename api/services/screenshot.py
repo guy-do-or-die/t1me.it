@@ -218,13 +218,20 @@ class ScreenshotService:
                 
                 # Quick video setup - no delays!
                 print("Quick video setup...")
-                await page.evaluate('''
-                    const video = document.querySelector("video");
-                    if (video) {
-                        video.muted = true;  // Ensure muted for autoplay
-                        video.play().catch(e => console.log("Play failed:", e));
-                    }
-                ''')
+                try:
+                    await __import__('asyncio').wait_for(
+                        page.evaluate('''
+                            const video = document.querySelector("video");
+                            if (video) {
+                                video.muted = true;  // Ensure muted for autoplay
+                                video.play().catch(e => console.log("Play failed:", e));
+                            }
+                        '''),
+                        timeout=5.0
+                    )
+                    print("✅ Video setup completed")
+                except Exception as e:
+                    print(f"⚠️ Video setup timeout/failed: {e}")
                 
                 # Minimal wait for video to start
                 await page.wait_for_timeout(100)
