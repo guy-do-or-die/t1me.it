@@ -85,54 +85,23 @@ class ScreenshotService:
                 
                 page = await context.new_page()
                 
-                # Navigate to the video URL
+                # Convert youtu.be URLs to direct youtube.com URLs to bypass consent
+                if 'youtu.be' in url:
+                    video_id = url.split('/')[-1].split('?')[0]
+                    youtube_url = f"https://www.youtube.com/watch?v={video_id}"
+                    if 't=' in url:
+                        timestamp_param = url.split('t=')[1].split('&')[0]
+                        youtube_url += f"&t={timestamp_param}"
+                    print(f"Converting to direct YouTube URL: {youtube_url}")
+                    url = youtube_url
+                
+                # Navigate directly to the video URL
                 print(f"Navigating to URL: {url}")
                 await page.goto(url, wait_until='domcontentloaded', timeout=30000)
                 
-                # Check if we're on YouTube consent page and handle it
-                current_url = page.url
-                if 'consent.youtube.com' in current_url:
-                    print("Detected YouTube consent page, trying to accept...")
-                    try:
-                        # Try to click accept button
-                        accept_selectors = [
-                            'button[aria-label*="Accept"]',
-                            'button[aria-label*="Accepteren"]',  # Dutch
-                            'button:has-text("Accept")',
-                            'button:has-text("Accepteren")',
-                            '[role="button"]:has-text("Accept")',
-                            '.VfPpkd-LgbsSe[jsname="V67aGc"]'  # YouTube consent button
-                        ]
-                        
-                        for selector in accept_selectors:
-                            try:
-                                await page.wait_for_selector(selector, timeout=3000)
-                                await page.click(selector)
-                                print(f"Clicked consent button: {selector}")
-                                await page.wait_for_timeout(2000)
-                                break
-                            except:
-                                continue
-                        
-                        # Wait for redirect to actual video page
-                        await page.wait_for_load_state('domcontentloaded', timeout=10000)
-                        print(f"After consent, current URL: {page.url}")
-                        
-                    except Exception as e:
-                        print(f"Failed to handle consent page: {e}")
-                        # Try to navigate directly to youtube.com version
-                        if 'youtu.be' in url:
-                            video_id = url.split('/')[-1].split('?')[0]
-                            youtube_url = f"https://www.youtube.com/watch?v={video_id}"
-                            if 't=' in url:
-                                timestamp = url.split('t=')[1].split('&')[0]
-                                youtube_url += f"&t={timestamp}"
-                            print(f"Trying direct YouTube URL: {youtube_url}")
-                            await page.goto(youtube_url, wait_until='domcontentloaded', timeout=30000)
-                
                 # Fast video element detection - no waiting around!
                 print("Fast video detection...")
-                await page.wait_for_timeout(1000)  # Minimal wait
+                await page.wait_for_timeout(100)  # Minimal wait
                 
                 # Try to find video element with YouTube-specific approach
                 video_found = False
@@ -240,7 +209,7 @@ class ScreenshotService:
                 ''')
                 
                 # Wait for quality change to take effect
-                await page.wait_for_timeout(1000)
+                await page.wait_for_timeout(100)
                 
                 # Get the video element
                 video_element = await page.query_selector('video')
@@ -258,7 +227,7 @@ class ScreenshotService:
                 ''')
                 
                 # Minimal wait for video to start
-                await page.wait_for_timeout(500)
+                await page.wait_for_timeout(100)
                 
                 # Check if video has actual content (not black)
                 video_ready = await page.evaluate('''
@@ -281,7 +250,7 @@ class ScreenshotService:
                 
                 if not video_ready:
                     print("Video not ready, quick retry...")
-                    await page.wait_for_timeout(500)  # Quick retry
+                    await page.wait_for_timeout(100)  # Quick retry
                     
                     # Quick play button retry
                     await page.evaluate('''
@@ -291,7 +260,7 @@ class ScreenshotService:
                         });
                     ''')
                     
-                    await page.wait_for_timeout(500)  # Quick wait
+                    await page.wait_for_timeout(100)  # Quick wait
                 
                 # Fast timestamp seeking - go back a few frames for stability
                 if timestamp > 0:
@@ -307,18 +276,18 @@ class ScreenshotService:
                     ''')
                     
                     # Quick seek verification
-                    await page.wait_for_timeout(300)
+                    await page.wait_for_timeout(100)
                     current_time = await page.evaluate('document.querySelector("video").currentTime')
                     print(f"Seeked to: {current_time} (target: {seek_time})")
                     
                     # One quick retry if needed
                     if abs(current_time - seek_time) > 2:
                         await page.evaluate(f'document.querySelector("video").currentTime = {seek_time}')
-                        await page.wait_for_timeout(200)
+                        await page.wait_for_timeout(100)
                 else:
                     # Quick pause at start
                     await page.evaluate('document.querySelector("video").pause()')
-                    await page.wait_for_timeout(200)
+                    await page.wait_for_timeout(100)
                 
                 # Hide YouTube player controls for cleaner screenshot
                 await page.evaluate('''
@@ -340,20 +309,34 @@ class ScreenshotService:
                 ''');
                 
                 # Quick wait for controls to hide
-                await page.wait_for_timeout(100);
+                await page.wait_for_timeout(100)
                 
-                # Take screenshot immediately - no fullscreen delays!
-                screenshot_bytes = await video_element.screenshot(type='png')
-                
-                return screenshot_bytes
-                
+                # Take screenshot with detailed error logging
+                print("Taking screenshot of video element...")
+                try:
+                    screenshot_bytes = await video_element.screenshot(type='png')
+                    print(f"Screenshot captured successfully, size: {len(screenshot_bytes)} bytes")
+                    return screenshot_bytes
+                except Exception as screenshot_error:
+                    print(f"Screenshot capture failed: {screenshot_error}")
+                    try:
+                        video_details = await video_element.evaluate('el => ({tagName: el.tagName, width: el.videoWidth, height: el.videoHeight, readyState: el.readyState})')
+                        print(f"Video element details: {video_details}")
+                    except:
+                        print("Could not get video element details")
+                    raise screenshot_error
+                    
             except Exception as e:
-                print(f"Error capturing screenshot: {e}")
+                print(f"Error in capture_video_screenshot: {e}")
+                import traceback
+                print(f"Full traceback: {traceback.format_exc()}")
                 return None
-                
             finally:
-                await browser.close()
-    
+                try:
+                    await browser.close()
+                except:
+                    pass
+
     async def process_screenshot(self, screenshot_bytes: bytes, width: int, height: int) -> bytes:
         """
         Process and optimize the screenshot.
