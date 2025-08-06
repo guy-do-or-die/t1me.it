@@ -55,7 +55,14 @@ class ScreenshotService:
             try:
                 context = await browser.new_context(
                     viewport={'width': width, 'height': height},
-                    user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                    user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    locale='en-US',
+                    timezone_id='America/New_York',
+                    extra_http_headers={
+                        'Accept-Language': 'en-US,en;q=0.9',
+                        'Accept-Encoding': 'gzip, deflate, br',
+                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8'
+                    }
                 )
                 
                 # Add stealth scripts to avoid detection
@@ -82,9 +89,50 @@ class ScreenshotService:
                 print(f"Navigating to URL: {url}")
                 await page.goto(url, wait_until='domcontentloaded', timeout=30000)
                 
-                # Wait for YouTube to load and try to find video element
-                print("Waiting for YouTube page to load...")
-                await page.wait_for_timeout(3000)  # Give YouTube time to load
+                # Check if we're on YouTube consent page and handle it
+                current_url = page.url
+                if 'consent.youtube.com' in current_url:
+                    print("Detected YouTube consent page, trying to accept...")
+                    try:
+                        # Try to click accept button
+                        accept_selectors = [
+                            'button[aria-label*="Accept"]',
+                            'button[aria-label*="Accepteren"]',  # Dutch
+                            'button:has-text("Accept")',
+                            'button:has-text("Accepteren")',
+                            '[role="button"]:has-text("Accept")',
+                            '.VfPpkd-LgbsSe[jsname="V67aGc"]'  # YouTube consent button
+                        ]
+                        
+                        for selector in accept_selectors:
+                            try:
+                                await page.wait_for_selector(selector, timeout=3000)
+                                await page.click(selector)
+                                print(f"Clicked consent button: {selector}")
+                                await page.wait_for_timeout(2000)
+                                break
+                            except:
+                                continue
+                        
+                        # Wait for redirect to actual video page
+                        await page.wait_for_load_state('domcontentloaded', timeout=10000)
+                        print(f"After consent, current URL: {page.url}")
+                        
+                    except Exception as e:
+                        print(f"Failed to handle consent page: {e}")
+                        # Try to navigate directly to youtube.com version
+                        if 'youtu.be' in url:
+                            video_id = url.split('/')[-1].split('?')[0]
+                            youtube_url = f"https://www.youtube.com/watch?v={video_id}"
+                            if 't=' in url:
+                                timestamp = url.split('t=')[1].split('&')[0]
+                                youtube_url += f"&t={timestamp}"
+                            print(f"Trying direct YouTube URL: {youtube_url}")
+                            await page.goto(youtube_url, wait_until='domcontentloaded', timeout=30000)
+                
+                # Fast video element detection - no waiting around!
+                print("Fast video detection...")
+                await page.wait_for_timeout(1000)  # Minimal wait
                 
                 # Try to find video element with YouTube-specific approach
                 video_found = False
@@ -102,7 +150,7 @@ class ScreenshotService:
                 for selector in youtube_selectors:
                     try:
                         print(f"Trying selector: {selector}")
-                        await page.wait_for_selector(selector, timeout=10000)
+                        await page.wait_for_selector(selector, timeout=2000)  # Fast timeout
                         video_element = await page.query_selector(selector)
                         if video_element:
                             print(f"Found video element with selector: {selector}")
@@ -113,9 +161,9 @@ class ScreenshotService:
                         continue
                 
                 if not video_found:
-                    # Try to click play button and wait for video
+                    # Quick play button attempt - no long waits
                     try:
-                        print("Trying to click play button...")
+                        print("Quick play button attempt...")
                         play_selectors = [
                             '.ytp-large-play-button',
                             '.ytp-play-button',
@@ -128,12 +176,12 @@ class ScreenshotService:
                                 play_button = await page.query_selector(play_selector)
                                 if play_button:
                                     await play_button.click()
-                                    await page.wait_for_timeout(2000)
+                                    await page.wait_for_timeout(500)  # Quick wait
                                     
-                                    # Try to find video again after clicking play
+                                    # Quick video check after play
                                     for selector in youtube_selectors:
                                         try:
-                                            await page.wait_for_selector(selector, timeout=5000)
+                                            await page.wait_for_selector(selector, timeout=1000)  # Fast
                                             video_element = await page.query_selector(selector)
                                             if video_element:
                                                 print(f"Found video after play click: {selector}")
@@ -199,8 +247,8 @@ class ScreenshotService:
                 if not video_element:
                     return None
                 
-                # First, try to play the video to load content
-                print("Starting video playback to load content...")
+                # Quick video setup - no delays!
+                print("Quick video setup...")
                 await page.evaluate('''
                     const video = document.querySelector("video");
                     if (video) {
@@ -209,8 +257,8 @@ class ScreenshotService:
                     }
                 ''')
                 
-                # Wait for video to start loading content
-                await page.wait_for_timeout(2000)
+                # Minimal wait for video to start
+                await page.wait_for_timeout(500)
                 
                 # Check if video has actual content (not black)
                 video_ready = await page.evaluate('''
@@ -232,10 +280,10 @@ class ScreenshotService:
                 ''')
                 
                 if not video_ready:
-                    print("Video content not ready, waiting longer...")
-                    await page.wait_for_timeout(3000)
+                    print("Video not ready, quick retry...")
+                    await page.wait_for_timeout(500)  # Quick retry
                     
-                    # Try clicking play button if video still not ready
+                    # Quick play button retry
                     await page.evaluate('''
                         const playButtons = document.querySelectorAll('.ytp-large-play-button, .ytp-play-button');
                         playButtons.forEach(btn => {
@@ -243,54 +291,58 @@ class ScreenshotService:
                         });
                     ''')
                     
-                    await page.wait_for_timeout(2000)
+                    await page.wait_for_timeout(500)  # Quick wait
                 
-                # Now seek to the specified timestamp
+                # Fast timestamp seeking - go back a few frames for stability
                 if timestamp > 0:
-                    print(f"Seeking to timestamp: {timestamp}")
+                    # Seek back 0.5 seconds for more stable frame (avoid transitions)
+                    seek_time = max(0, timestamp + 0.5)
+                    print(f"Fast seek to: {seek_time} (requested: {timestamp})")
                     await page.evaluate(f'''
                         const video = document.querySelector("video");
                         if (video) {{
-                            video.currentTime = {timestamp};
+                            video.currentTime = {seek_time};
                             video.pause();
                         }}
                     ''')
                     
-                    # Wait for seek to complete
-                    await page.wait_for_timeout(1000)
-                    
-                    # Verify we're at the correct timestamp
+                    # Quick seek verification
+                    await page.wait_for_timeout(300)
                     current_time = await page.evaluate('document.querySelector("video").currentTime')
-                    print(f"Current video time after seek: {current_time}")
+                    print(f"Seeked to: {current_time} (target: {seek_time})")
                     
-                    if abs(current_time - timestamp) > 2:
-                        print(f"Seek failed, trying again...")
-                        await page.evaluate(f'document.querySelector("video").currentTime = {timestamp}')
-                        await page.wait_for_timeout(1000)
+                    # One quick retry if needed
+                    if abs(current_time - seek_time) > 2:
+                        await page.evaluate(f'document.querySelector("video").currentTime = {seek_time}')
+                        await page.wait_for_timeout(200)
                 else:
-                    # For timestamp 0, pause at the beginning
+                    # Quick pause at start
                     await page.evaluate('document.querySelector("video").pause()')
-                    await page.wait_for_timeout(500)
+                    await page.wait_for_timeout(200)
                 
-                # Enter fullscreen mode for maximum resolution capture
+                # Hide YouTube player controls for cleaner screenshot
                 await page.evaluate('''
-                    const video = document.querySelector("video");
-                    if (video.requestFullscreen) {
-                        video.requestFullscreen();
-                    } else if (video.webkitRequestFullscreen) {
-                        video.webkitRequestFullscreen();
-                    } else if (video.mozRequestFullScreen) {
-                        video.mozRequestFullScreen();
-                    }
-                ''')
+                    // Hide YouTube player controls
+                    const controls = document.querySelectorAll(
+                        '.ytp-chrome-bottom, .ytp-chrome-top, .ytp-gradient-bottom, .ytp-gradient-top, ' +
+                        '.ytp-progress-bar-container, .ytp-chrome-controls, .ytp-pause-overlay, ' +
+                        '.ytp-big-mode .ytp-chrome-bottom, .ytp-big-mode .ytp-chrome-top'
+                    );
+                    controls.forEach(el => {
+                        if (el) el.style.display = 'none';
+                    });
+                    
+                    // Also hide any overlay elements
+                    const overlays = document.querySelectorAll('.ytp-paid-content-overlay, .ytp-ce-element');
+                    overlays.forEach(el => {
+                        if (el) el.style.display = 'none';
+                    });
+                ''');
                 
-                # Wait for fullscreen transition
-                await page.wait_for_timeout(300)
+                # Quick wait for controls to hide
+                await page.wait_for_timeout(100);
                 
-                # Wait a bit for the frame to render
-                await page.wait_for_timeout(500)
-                
-                # Take screenshot of the video element
+                # Take screenshot immediately - no fullscreen delays!
                 screenshot_bytes = await video_element.screenshot(type='png')
                 
                 return screenshot_bytes
