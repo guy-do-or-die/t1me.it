@@ -6,6 +6,35 @@ from ..config.settings import settings
 router = APIRouter()
 
 
+@router.get("/health")
+async def health_check():
+    """Health check endpoint."""
+    return JSONResponse(
+        content={
+            "status": "healthy",
+            "service": settings.TITLE,
+            "version": settings.VERSION
+        }
+    )
+
+
+@router.get("/api")
+async def api_info():
+    """API endpoint with service information."""
+    return {
+        "service": settings.TITLE,
+        "description": settings.DESCRIPTION,
+        "version": settings.VERSION,
+        "endpoints": {
+            "screenshot": "/screenshot",
+            "shorten": "/shorten",
+            "resolve": "/s/{short_id}",
+            "cache": "/cache/{cache_key}",
+            "health": "/health"
+        }
+    }
+
+
 @router.get("/")
 async def root():
     """Serve the frontend interface."""
@@ -28,32 +57,3 @@ async def serve_frontend(path: str, request: Request):
     
     # Default to index.html for React Router
     return FileResponse("static/index.html")
-
-
-@router.get("/api")
-async def api_info():
-    """API endpoint with service information."""
-    return {
-        "service": settings.TITLE,
-        "description": settings.DESCRIPTION,
-        "version": settings.VERSION,
-        "endpoints": {
-            "screenshot": "/screenshot",
-            "shorten": "/shorten",
-            "resolve": "/s/{short_id}",
-            "cache": "/cache/{cache_key}",
-            "health": "/health"
-        }
-    }
-
-
-@router.get("/health")
-async def health_check():
-    """Health check endpoint."""
-    return JSONResponse(
-        content={
-            "status": "healthy",
-            "service": settings.TITLE,
-            "version": settings.VERSION
-        }
-    )

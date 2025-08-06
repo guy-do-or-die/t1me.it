@@ -40,7 +40,13 @@ class Settings:
     @property
     def BASE_URL(self) -> str:
         """Get BASE_URL from environment or construct from HOST:PORT."""
-        return os.getenv("BASE_URL", f"http://{self.HOST}:{self.PORT}")
+        # Check for explicit BASE_URL override
+        base_url = os.getenv("BASE_URL")
+        if base_url:
+            return base_url
+            
+        # Default to local development
+        return f"http://{self.HOST}:{self.PORT}"
  
     def __init__(self):
         """Initialize settings and create required directories."""
