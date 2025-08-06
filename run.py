@@ -12,6 +12,6 @@ if __name__ == "__main__":
         "api.main:app",
         host=settings.HOST,
         port=settings.PORT,
-        reload=True,  # Enable auto-reload during development
+        reload=False,  # Disabled for production
         log_level="info"
     )
