@@ -373,23 +373,31 @@ class ScreenshotService:
                 await page.wait_for_timeout(100)
                 
                 # Check if video has actual content (not black)
-                video_ready = await page.evaluate('''
-                    (() => {
-                        const video = document.querySelector("video");
-                        if (!video) return false;
-                        
-                        // Check if video has loaded some data
-                        const hasData = video.readyState >= 2; // HAVE_CURRENT_DATA
-                        const hasSize = video.videoWidth > 0 && video.videoHeight > 0;
-                        const duration = video.duration > 0;
-                        
-                        console.log("Video readyState:", video.readyState);
-                        console.log("Video dimensions:", video.videoWidth, "x", video.videoHeight);
-                        console.log("Video duration:", video.duration);
-                        
-                        return hasData && hasSize && duration;
-                    })()
-                ''')
+                try:
+                    video_ready = await __import__('asyncio').wait_for(
+                        page.evaluate('''
+                            (() => {
+                                const video = document.querySelector("video");
+                                if (!video) return false;
+                                
+                                // Check if video has loaded some data
+                                const hasData = video.readyState >= 2; // HAVE_CURRENT_DATA
+                                const hasSize = video.videoWidth > 0 && video.videoHeight > 0;
+                                const duration = video.duration > 0;
+                                
+                                console.log("Video readyState:", video.readyState);
+                                console.log("Video dimensions:", video.videoWidth, "x", video.videoHeight);
+                                console.log("Video duration:", video.duration);
+                                
+                                return hasData && hasSize && duration;
+                            })()
+                        '''),
+                        timeout=3.0
+                    )
+                    print(f"✅ Video ready check completed")
+                except Exception as e:
+                    print(f"⚠️ Video ready check failed/timeout: {e}")
+                    video_ready = False
                 
                 if not video_ready:
                     print("Video not ready, attempting to load content...")
@@ -412,9 +420,11 @@ class ScreenshotService:
                         # Check if video actually has content now
                         video_has_content = await __import__('asyncio').wait_for(
                             page.evaluate('''
-                                const video = document.querySelector("video");
-                                if (!video) return false;
-                                return video.videoWidth > 0 && video.videoHeight > 0 && video.readyState >= 2;
+                                (() => {
+                                    const video = document.querySelector("video");
+                                    if (!video) return false;
+                                    return video.videoWidth > 0 && video.videoHeight > 0 && video.readyState >= 2;
+                                })()
                             '''),
                             timeout=3.0
                         )
