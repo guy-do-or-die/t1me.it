@@ -48,7 +48,7 @@ RUN playwright install-deps chromium
 COPY . .
 
 # Copy built frontend from frontend-builder stage
-COPY --from=frontend-builder /app/frontend/../static ./static
+COPY --from=frontend-builder /app/static ./static
 
 # Create cache directory
 RUN mkdir -p cache

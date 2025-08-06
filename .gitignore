@@ -31,9 +31,12 @@ venv.bak/
 
 # Cache
 cache/
-*.jpg
-*.png
-*.jpeg
+cache/*.jpg
+cache/*.png
+cache/*.jpeg
+screenshots/*.jpg
+screenshots/*.png
+screenshots/*.jpeg
 
 # User data - short links and screenshots
 links/
