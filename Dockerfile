@@ -1,3 +1,21 @@
+# Frontend build stage
+FROM oven/bun:1 as frontend-builder
+
+WORKDIR /app/frontend
+
+# Copy frontend package files
+COPY app/package.json app/bun.lock* ./
+
+# Install frontend dependencies
+RUN bun install
+
+# Copy frontend source code
+COPY app/ ./
+
+# Build frontend
+RUN bun run build
+
+# Backend stage
 FROM python:3.11-slim
 
 # Install system dependencies
@@ -20,7 +38,7 @@ WORKDIR /app
 COPY pyproject.toml poetry.lock* ./
 
 # Install Python dependencies
-RUN poetry install --no-dev
+RUN poetry install --without dev
 
 # Install Playwright browsers
 RUN playwright install chromium
@@ -28,6 +46,9 @@ RUN playwright install-deps chromium
 
 # Copy application code
 COPY . .
+
+# Copy built frontend from frontend-builder stage
+COPY --from=frontend-builder /app/frontend/dist ./static
 
 # Create cache directory
 RUN mkdir -p cache
